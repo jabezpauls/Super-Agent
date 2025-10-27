@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Browser Automation REPL with local Ollama LLM (zero cost)
+  repl-ollama:
+    build:
+      context: .
+      dockerfile: Dockerfile.repl
+    container_name: browser-repl-ollama
+    environment:
+      # Use Ollama on host machine (free, local)
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - DISPLAY=:99
+    volumes:
+      # Persist Chrome profile data
+      - ./chrome-data:/home/browseruser/chrome-data
+      # Mount current directory to access updated code
+      - ./browser_use_repl.py:/home/browseruser/app/browser_use_repl.py:ro
+      - ./browser_use:/home/browseruser/app/browser_use:ro
+    command: ["browser_use_repl.py", "--model", "deepseek-r1:14b", "--headless", "--max-steps", "10", "--verbose"]
+    stdin_open: true
+    tty: true
+    networks:
+      - browser-net
+
+  # Browser Automation REPL with OpenAI (requires API key)
+  repl-openai:
+    build:
+      context: .
+      dockerfile: Dockerfile.repl
+    container_name: browser-repl-openai
+    environment:
+      # Set your OpenAI API key here or via .env file
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DISPLAY=:99
+    volumes:
+      - ./chrome-data:/home/browseruser/chrome-data
+      - ./browser_use_repl.py:/home/browseruser/app/browser_use_repl.py:ro
+      - ./browser_use:/home/browseruser/app/browser_use:ro
+    command: ["browser_use_repl.py", "--provider", "openai", "--model", "gpt-4o-mini", "--headless", "--max-steps", "10"]
+    stdin_open: true
+    tty: true
+    networks:
+      - browser-net
+
+  # Browser Automation REPL with Google Gemini (requires API key)
+  repl-gemini:
+    build:
+      context: .
+      dockerfile: Dockerfile.repl
+    container_name: browser-repl-gemini
+    environment:
+      # Set your Google API key here or via .env file
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DISPLAY=:99
+    volumes:
+      - ./chrome-data:/home/browseruser/chrome-data
+      - ./browser_use_repl.py:/home/browseruser/app/browser_use_repl.py:ro
+      - ./browser_use:/home/browseruser/app/browser_use:ro
+    command: ["browser_use_repl.py", "--provider", "google", "--model", "gemini-2.0-flash-exp", "--headless", "--max-steps", "10"]
+    stdin_open: true
+    tty: true
+    networks:
+      - browser-net
+
+  # Optional: Ollama server (if you want to run it in Docker too)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - browser-net
+    # Uncomment if you have GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  ollama-data:
+    driver: local
+
+networks:
+  browser-net:
+    driver: bridge

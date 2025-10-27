@@ -1,0 +1,120 @@
+# Browser Automation REPL - Dockerfile
+# Specialized container for running the interactive REPL with Chrome
+# Can run WITHOUT sudo access - perfect for restricted environments
+
+FROM python:3.11-slim-bookworm
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+	DEBIAN_FRONTEND=noninteractive \
+	DISPLAY=:99 \
+	CHROME_BIN=/usr/bin/google-chrome \
+	PYTHONDONTWRITEBYTECODE=1 \
+	IN_DOCKER=True
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+	# Chrome dependencies
+	wget \
+	gnupg \
+	ca-certificates \
+	fonts-liberation \
+	libasound2 \
+	libatk-bridge2.0-0 \
+	libatk1.0-0 \
+	libatspi2.0-0 \
+	libcups2 \
+	libdbus-1-3 \
+	libdrm2 \
+	libgbm1 \
+	libgtk-3-0 \
+	libnspr4 \
+	libnss3 \
+	libwayland-client0 \
+	libxcomposite1 \
+	libxdamage1 \
+	libxfixes3 \
+	libxkbcommon0 \
+	libxrandr2 \
+	xdg-utils \
+	# Virtual display (for headless mode)
+	xvfb \
+	# Utilities
+	curl \
+	git \
+	procps \
+	vim-tiny \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Install Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+	&& echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
+	&& apt-get update \
+	&& apt-get install -y google-chrome-stable \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Create non-root user (critical for systems without sudo access)
+RUN useradd -m -u 1000 -s /bin/bash browseruser && \
+	mkdir -p /home/browseruser/.cache /home/browseruser/.local && \
+	chown -R browseruser:browseruser /home/browseruser
+
+# Switch to non-root user early
+USER browseruser
+WORKDIR /home/browseruser/app
+
+# Install uv (fast Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/home/browseruser/.cargo/bin:$PATH"
+
+# Copy project files (as non-root user)
+COPY --chown=browseruser:browseruser pyproject.toml uv.lock* ./
+COPY --chown=browseruser:browseruser browser_use ./browser_use
+COPY --chown=browseruser:browseruser browser_use_repl.py ./
+COPY --chown=browseruser:browseruser browser_use_interactive.py ./
+COPY --chown=browseruser:browseruser *.md ./docs/
+
+# Install Python dependencies
+RUN uv venv --python 3.11 && \
+	uv sync
+
+# Create directories for Chrome data (owned by browseruser)
+RUN mkdir -p /home/browseruser/chrome-data /home/browseruser/chrome-profile
+
+# Expose port for CDP (if you want to connect to Chrome remotely)
+EXPOSE 9222
+
+# Environment variables for LLM APIs (override at runtime)
+ENV OPENAI_API_KEY="" \
+	ANTHROPIC_API_KEY="" \
+	GOOGLE_API_KEY="" \
+	OLLAMA_HOST="http://host.docker.internal:11434"
+
+# Wrapper script to handle Xvfb for headless mode
+COPY --chown=browseruser:browseruser <<'EOF' /home/browseruser/app/entrypoint.sh
+#!/bin/bash
+set -e
+
+# Start Xvfb in background if DISPLAY is set (headless mode)
+if [ -n "$DISPLAY" ]; then
+	echo "[Docker] Starting Xvfb for headless Chrome..."
+	Xvfb $DISPLAY -screen 0 1920x1080x24 &
+	XVFB_PID=$!
+	sleep 2
+fi
+
+# Run the REPL
+exec /home/browseruser/app/.venv/bin/python "$@"
+
+# Cleanup Xvfb on exit
+if [ -n "$XVFB_PID" ]; then
+	kill $XVFB_PID 2>/dev/null || true
+fi
+EOF
+
+RUN chmod +x /home/browseruser/app/entrypoint.sh
+
+# Set entrypoint
+ENTRYPOINT ["/home/browseruser/app/entrypoint.sh"]
+
+# Default command runs the REPL with headless Chrome
+CMD ["browser_use_repl.py", "--headless", "--max-steps", "10", "--verbose"]
