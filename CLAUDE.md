@@ -17,11 +17,25 @@ This is a **portable, standalone package** within the larger browser-use reposit
 
 ### REPL Layer (This Directory)
 
-The REPL applications provide an interactive wrapper around the browser-use library:
+The REPL applications provide an interactive wrapper around the browser-use library with **modular architecture**:
 
-- **browser_use_repl.py**: Main REPL with persistent sessions, command history, and prompt optimization
+**Main Applications:**
+- **browser_use_repl.py**: Main REPL with multi-tool support (browser, chat, calendar, email), intelligent tool routing, persistent sessions, and command history
 - **browser_use_interactive.py**: Alternative CLI with clean logging and step-by-step execution display
-- **Prompt Optimization**: Optional LLM-based query enhancement following browser-use prompting guidelines
+
+**Modular Components (repl/):**
+- **cli.py**: Command-line argument parsing, LLM initialization, MCP environment setup
+- **session_manager.py**: Core session management with intelligent tool routing, lazy browser initialization, MCP connection management
+- **commands.py**: Special command handling (/help, /exit, /browser, /calendar, /email, /connect, /status)
+- **prompt_optimizer.py**: Optional LLM-based query enhancement following browser-use prompting guidelines
+
+**Integration Modules:**
+- **browser_use/agent/tool_router.py**: Intelligent LLM-based tool routing (chat vs browser vs calendar vs email)
+- **browser_use/mcp/manager.py**: MCP server lifecycle management with lazy-loading
+
+**MCP Servers (scripts/):**
+- **scripts/mcp_calendar_server.py**: Google Calendar MCP server (list/create/update/delete events, check availability)
+- **scripts/mcp_gmail_server.py**: Gmail MCP server (list/read/send emails, search, modify labels)
 
 ### Browser-Use Library (browser_use/)
 
@@ -56,6 +70,28 @@ python browser_use_repl.py --model deepseek-r1:14b --optimize
 
 # Headless mode (no browser window)
 python browser_use_repl.py --model deepseek-r1:14b --headless
+
+# With MCP tools (Calendar, Email)
+python browser_use_repl.py --model deepseek-r1:14b --google-credentials credentials.json
+
+# Disable specific features
+python browser_use_repl.py --disable-mcp  # No calendar/email
+python browser_use_repl.py --disable-chat # No pure chat mode
+```
+
+**MCP Setup (Optional - for Calendar/Email):**
+```bash
+# Install MCP dependencies
+pip install fastmcp google-auth-oauthlib google-api-python-client
+
+# Setup Google OAuth (see docs/MCP_SETUP_GUIDE.md)
+# 1. Create Google Cloud project
+# 2. Enable Calendar and Gmail APIs
+# 3. Download credentials.json
+# 4. Run REPL - OAuth flow will open browser for authorization
+
+# Run REPL with MCP
+python browser_use_repl.py --google-credentials credentials.json
 ```
 
 **Docker Deployment:**
@@ -116,17 +152,86 @@ Follow the same conventions as the main browser-use library (see parent CLAUDE.m
 - **Command Handling**: Special commands (e.g., `/history`, `/exit`) handled separately from browser automation queries
 - **Error Recovery**: Graceful handling of LLM failures, browser crashes, and user interrupts (Ctrl+C)
 
+### Modular Architecture (repl/)
+
+The REPL is organized into focused, single-responsibility modules:
+
+- **repl/cli.py** (~260 lines): Argument parsing and LLM initialization
+  - `parse_arguments()`: Define all CLI arguments with help text
+  - `create_llm_from_args()`: Create provider-specific LLM instances
+  - `setup_mcp_environment()`: Configure MCP-related environment variables
+
+- **repl/session_manager.py** (~450 lines): Core session and routing logic
+  - `SessionManager`: Main class coordinating browser, agent, and MCP
+  - `initialize_browser()`: Lazy browser initialization on first use
+  - `ensure_mcp_connected()`: Lazy MCP server connection
+  - `chat_response()`: Pure chat without tools
+  - `execute_browser_task()`: Browser automation with prompt optimization
+  - `execute_mcp_task()`: MCP tool execution (calendar, email)
+  - `process_query()`: Main routing logic with manual override support
+
+- **repl/commands.py** (~300 lines): Special command handlers
+  - `CommandHandler.handle_command()`: Dispatch commands to appropriate handlers
+  - Commands: `/help`, `/exit`, `/clear`, `/history`, `/config`
+  - Tool forcing: `/browser`, `/calendar`, `/email`, `/chat`
+  - MCP management: `/connect`, `/disconnect`, `/status`, `/tools`
+
+- **repl/prompt_optimizer.py** (~130 lines): Prompt enhancement
+  - `optimize_prompt()`: LLM-based optimization using official guidelines
+  - `add_task_anchoring()`: Simple anchoring for non-optimized mode
+  - Supports multiple LLM providers (OpenAI, Anthropic, Google, Ollama)
+
+**Design Principles:**
+- Each module has a single, clear responsibility
+- Lazy-loading for expensive resources (browser, MCP servers)
+- Clean separation between CLI, business logic, and I/O
+- Easy to test individual components
+- Main file (browser_use_repl.py) is minimal orchestrator (~144 lines)
+
 ## REPL Applications
 
 ### browser_use_repl.py (Main REPL)
 
-Full-featured REPL with:
+Full-featured multi-tool REPL with:
+
+**Multi-Tool Support:**
+- **Browser Tool**: Web automation (always available)
+- **Chat Tool**: Natural conversations without external tools
+- **Calendar Tool**: Google Calendar via MCP (list/create/update/delete events, check availability)
+- **Email Tool**: Gmail via MCP (list/read/send emails, search, modify labels)
+
+**Intelligent Routing:**
+- Automatic LLM-based tool selection based on user query
+- Manual tool forcing with `/browser`, `/calendar`, `/email`, `/chat` commands
+- Hybrid approach: smart defaults with manual override capability
+
+**Session Management:**
 - Persistent browser sessions across multiple queries
+- Lazy-loading: browser and MCP servers connect only when first needed
+- Clean session cleanup with `/clear` command
+
+**Features:**
 - Command history with `/history` command
 - Optional prompt optimization with `--optimize`
 - Support for all LLM providers (Ollama, OpenAI, Google, Anthropic, Groq)
 - Configurable max steps, timeouts, and browser options
 - Clean logging with rich terminal formatting
+- MCP server management (`/connect`, `/disconnect`, `/status`, `/tools`)
+
+**Special Commands:**
+- `/help` - Show available commands
+- `/exit` or `/quit` - Exit REPL
+- `/clear` - Clear browser session
+- `/history` - Show command history
+- `/config` - Show current configuration
+- `/browser <query>` - Force browser tool
+- `/calendar <query>` - Force calendar tool
+- `/email <query>` - Force email tool
+- `/chat <message>` - Force pure chat response
+- `/connect <server>` - Connect to MCP server (calendar, gmail)
+- `/disconnect <server>` - Disconnect from MCP server
+- `/status` - Show MCP connection status
+- `/tools` - List available tools
 
 ### browser_use_interactive.py (Alternative CLI)
 
@@ -135,6 +240,7 @@ Simpler interactive CLI focusing on:
 - Detailed logging of each agent action
 - Single-query execution mode
 - Minimal dependencies
+- Browser-only (no MCP integration)
 
 ## Key Configuration Options
 
@@ -151,15 +257,28 @@ OPTIMIZE_PROMPTS=false          # Enable prompt optimization
 
 **Command-Line Arguments:**
 ```bash
+# LLM Configuration
 --model              # LLM model name (e.g., deepseek-r1:14b, gpt-4o-mini)
 --provider           # LLM provider (ollama, openai, google, anthropic, groq)
+--host               # Ollama server URL (default: http://localhost:11434)
+
+# Browser Configuration
 --headless           # Run without browser GUI
 --max-steps          # Max actions per query (default: 10)
---optimize           # Enable LLM-based prompt optimization
---verbose            # Show detailed logs
+--no-vision          # Disable vision/screenshots
 --user-data-dir      # Chrome profile directory
 --profile-directory  # Chrome profile name (e.g., "Default")
---env-file           # Load environment variables from file
+--cdp-url            # Connect to existing Chrome via CDP
+
+# Tool Configuration
+--optimize           # Enable LLM-based prompt optimization
+--disable-mcp        # Disable MCP tools (Calendar, Email)
+--disable-chat       # Disable pure chat mode (always use tools)
+--google-credentials # Path to Google OAuth credentials (default: credentials.json)
+
+# Output Configuration
+--quiet              # Minimal output (only final results)
+--verbose            # Show detailed logs including thinking and actions
 ```
 
 Run `python browser_use_repl.py --help` for complete options.
@@ -197,11 +316,12 @@ Essential reading order:
 2. **docs/REPL_QUICK_START.md**: 5-minute getting started guide
 3. **docs/REPL_CLI_README.md**: Complete REPL documentation with all features
 4. **docs/MODEL_RECOMMENDATIONS.md**: LLM model selection guide
-5. **docs/REPL_TROUBLESHOOTING.md**: Common issues and solutions
-6. **docs/UNDERSTANDING_AGENT_BEHAVIOR.md**: How the agent makes decisions
-7. **docs/REPL_PROMPTING_TIPS.md**: Writing effective browser automation prompts
-8. **docs/DOCKER_SETUP.md**: Complete Docker deployment guide
-9. **docs/DOCKER_README.md**: Quick Docker reference
+5. **docs/MCP_SETUP_GUIDE.md**: Google Calendar and Gmail MCP integration (optional)
+6. **docs/REPL_TROUBLESHOOTING.md**: Common issues and solutions
+7. **docs/UNDERSTANDING_AGENT_BEHAVIOR.md**: How the agent makes decisions
+8. **docs/REPL_PROMPTING_TIPS.md**: Writing effective browser automation prompts
+9. **docs/DOCKER_SETUP.md**: Complete Docker deployment guide
+10. **docs/DOCKER_README.md**: Quick Docker reference
 
 ## Important Development Constraints
 
@@ -327,6 +447,95 @@ When `--optimize` is enabled, user queries are enhanced using the official brows
 4. **Context**: Provide relevant information
 
 The optimization uses a separate LLM call to transform casual queries into structured prompts before execution.
+
+## Tool Routing System
+
+The REPL uses intelligent LLM-based routing to automatically select the appropriate tool:
+
+### Available Tool Types
+- **CHAT**: Natural conversation without external tools (e.g., "What's 2+2?", "Explain quantum physics")
+- **BROWSER**: Web automation and data extraction (e.g., "Find flights to Tokyo", "Search for Python tutorials")
+- **CALENDAR**: Google Calendar operations (e.g., "Check my calendar tomorrow", "Schedule meeting 2pm")
+- **EMAIL**: Gmail operations (e.g., "Read latest email", "Send email to john@example.com")
+
+### Routing Decision Process
+
+1. **Manual Override Detection**: Check for `/browser`, `/calendar`, `/email`, `/chat` prefixes
+2. **LLM-Based Routing**: If no manual override, query LLM to analyze intent:
+   ```python
+   decision = await route_query(llm, user_query)
+   # Returns: ToolDecision(primary_tool, reasoning, specific_actions)
+   ```
+3. **Fallback Heuristics**: If LLM routing fails, use pattern matching:
+   - Calendar keywords: "calendar", "schedule", "meeting", "event"
+   - Email keywords: "email", "gmail", "send message", "inbox"
+   - Browser keywords: "search", "find", "website", "open"
+   - Chat: Default for general questions
+
+4. **Tool Execution**: Execute appropriate handler based on decision
+
+### Routing Examples
+
+```bash
+# Automatic routing
+> What's the capital of France?           # → CHAT
+> Find cheap flights to Tokyo             # → BROWSER
+> Check my calendar for tomorrow          # → CALENDAR (auto-connects MCP)
+> Send email to john@example.com          # → EMAIL (auto-connects MCP)
+
+# Manual override
+> /browser What's 2+2?                    # → BROWSER (forced)
+> /chat search for Python tutorials       # → CHAT (forced)
+> /calendar list events                   # → CALENDAR (forced)
+> /email check inbox                      # → EMAIL (forced)
+```
+
+## MCP Integration
+
+### Architecture
+
+The REPL integrates with MCP (Model Context Protocol) servers to extend agent capabilities:
+
+- **MCPManager** (`browser_use/mcp/manager.py`): Server lifecycle management
+- **Lazy Loading**: MCP servers connect only when first needed
+- **Server Configs**: Defined in `MCP_SERVER_CONFIGS` dict with command, args, ports
+- **Tool Registration**: MCP tools automatically registered to agent's tool registry
+
+### MCP Servers
+
+**Calendar Server** (`scripts/mcp_calendar_server.py`):
+- `list_calendar_events`: Query events with filters, search, time ranges
+- `create_calendar_event`: Create events with attendees, notifications
+- `update_calendar_event`: Modify existing events
+- `delete_calendar_event`: Delete events with cancellation emails
+- `check_availability`: Check free/busy status
+
+**Gmail Server** (`scripts/mcp_gmail_server.py`):
+- `list_emails`: List emails with Gmail search syntax
+- `read_email`: Read specific email with full content
+- `send_email`: Send emails with CC/BCC, HTML support
+- `modify_email_labels`: Add/remove labels (INBOX, UNREAD, etc.)
+- `search_emails`: Quick email search
+
+### MCP Setup
+
+See `docs/MCP_SETUP_GUIDE.md` for complete setup instructions:
+
+1. **Install Dependencies**: `pip install fastmcp google-auth-oauthlib google-api-python-client`
+2. **Google Cloud Setup**: Create project, enable APIs, create OAuth credentials
+3. **Download credentials.json**: OAuth 2.0 client credentials
+4. **Run REPL**: `python browser_use_repl.py --google-credentials credentials.json`
+5. **OAuth Flow**: Browser opens for authorization, token saved to token.pickle
+
+### MCP Management Commands
+
+```bash
+/connect calendar      # Connect to Calendar MCP server
+/connect gmail         # Connect to Gmail MCP server
+/disconnect calendar   # Disconnect from Calendar
+/status                # Show all MCP connection status
+/tools                 # List available tools
+```
 
 ## important-instruction-reminders
 

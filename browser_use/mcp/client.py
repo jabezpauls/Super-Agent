@@ -207,6 +207,32 @@ class MCPClient:
 			)
 			self._telemetry.flush()
 
+	async def call_tool(self, tool_name: str, arguments: dict) -> Any:
+		"""Call an MCP tool directly.
+
+		Args:
+			tool_name: Name of the tool to call
+			arguments: Arguments to pass to the tool
+
+		Returns:
+			Tool execution result
+		"""
+		if not self._connected or not self.session:
+			await self.connect()
+
+		# Call the tool via the MCP session
+		result = await self.session.call_tool(tool_name, arguments)
+
+		# Extract content from result
+		if hasattr(result, 'content') and result.content:
+			# Return the first content item's text
+			if len(result.content) > 0:
+				content_item = result.content[0]
+				if hasattr(content_item, 'text'):
+					return content_item.text
+
+		return result
+
 	async def register_to_tools(
 		self,
 		tools: Tools,
