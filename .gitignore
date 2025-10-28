@@ -18,6 +18,7 @@ gmail_token.pickle
 calendar_token.pickle
 token.pickle
 credentials.json
+client_secret_*.json
 
 # Environment variables
 .env
