@@ -80,25 +80,55 @@ async def run_repl(llm, logger: CleanLogger, args) -> int:
 			pass
 		readline.set_history_length(1000)
 
-	# Display welcome message
-	print("\n" + "="*70)
-	print("🤖 Browser-Use REPL - Multi-Tool AI Agent".center(70))
-	print("="*70)
-	print("\nAvailable tools:")
-	print("  🌐 Browser    - Web automation (always available)")
-	print("  💬 Chat       - Conversations" + (" (enabled)" if not args.disable_chat else " (disabled)"))
-	print("  📅 Calendar   - Google Calendar" + (" (MCP)" if not args.disable_mcp else " (disabled)"))
-	print("  📧 Email      - Gmail" + (" (MCP)" if not args.disable_mcp else " (disabled)"))
-	print("\n💡 Quick Start:")
-	print("  Just type naturally - AI chooses the right tool")
-	print("  Or force a tool: /browser, /mail, /calendar, /chat")
-	print("  Type /help for all commands, /exit to quit")
-	print("\n🌐 Chrome Connection:")
-	print("  Auto-connects to existing Chrome (port 9222) if available")
-	print("  To use existing Chrome, launch it FIRST with:")
-	print("    google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug")
-	print("  Then verify: curl http://localhost:9222/json/version")
-	print("="*70 + "\n")
+	# Clear terminal and display ASCII art welcome message with gradient
+	os.system('clear' if os.name != 'nt' else 'cls')
+
+	# ANSI color codes for gradient (cyan to blue to purple)
+	colors = [
+		'\033[96m',  # Bright Cyan
+		'\033[94m',  # Bright Blue
+		'\033[38;5;117m',  # Light Blue
+		'\033[38;5;111m',  # Medium Blue
+		'\033[38;5;105m',  # Blue Purple
+		'\033[38;5;99m',   # Purple
+	]
+	reset = '\033[0m'
+
+	ascii_lines = [
+		" ███████╗██╗   ██╗██████╗ ███████╗██████╗      █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+		" ██╔════╝██║   ██║██╔══██╗██╔════╝██╔══██╗    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+		" ███████╗██║   ██║██████╔╝█████╗  ██████╔╝    ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+		" ╚════██║██║   ██║██╔═══╝ ██╔══╝  ██╔══██╗    ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+		" ███████║╚██████╔╝██║     ███████╗██║  ██║    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+		" ╚══════╝ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+	]
+
+	print()
+	for i, line in enumerate(ascii_lines):
+		print(f"{colors[i]}{line}{reset}")
+	print()
+
+	print("=" * 88)
+	print()
+	print("AVAILABLE TOOLS:")
+	print("  Browser    │ Web automation and data extraction (always available)")
+	print("  Chat       │ Natural language conversations" + (" (enabled)" if not args.disable_chat else " (disabled)"))
+	print("  Calendar   │ Google Calendar management" + (" (MCP enabled)" if not args.disable_mcp else " (disabled)"))
+	print("  Email      │ Gmail operations" + (" (MCP enabled)" if not args.disable_mcp else " (disabled)"))
+	print()
+	print("USAGE:")
+	print("  • Type naturally - AI automatically selects the appropriate tool")
+	print("  • Force specific tool: /browser, /email, /calendar, /chat")
+	print("  • Commands: /help (show all commands) | /exit (quit application)")
+	print()
+	print("CHROME CONNECTION:")
+	print("  • Automatically connects to existing Chrome instance on port 9222")
+	print("  • To use existing Chrome session, launch it first with:")
+	print("    $ google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug")
+	print("  • Verify connection: curl http://localhost:9222/json/version")
+	print()
+	print("=" * 88)
+	print()
 
 	try:
 		while True:

@@ -798,9 +798,11 @@ Message ID: {message_id}
 				}
 
 		# Send email operations (CHECKED LAST to avoid false positives)
-		# Check for email sending patterns (including "email NAME saying...")
-		if any(keyword in query_lower for keyword in ['send', 'email to', 'mail to', 'write email', 'compose email']) or \
-		   re.match(r'^email\s+[a-zA-Z]+\s+(saying|that|about)', query_lower):
+		# Check for email sending patterns - more flexible matching
+		has_email_action = any(keyword in query_lower for keyword in ['send', 'email to', 'mail to', 'write email', 'compose email'])
+		has_mail_pattern = re.search(r'\b(email|mail)\s+[a-zA-Z]+\s+(saying|that|about)', query_lower)  # "mail pranov saying..."
+
+		if has_email_action or has_mail_pattern:
 			# First, try to extract contact name and lookup email
 			to_email = None
 			name_match = re.search(r'(?:email|mail|send)\s+(?:to\s+)?([a-zA-Z]+)(?:\s+saying|\s+that|$)', query_lower)
