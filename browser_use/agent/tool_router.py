@@ -52,13 +52,22 @@ Available tools:
 4. **EMAIL** - Read, send, search emails, manage labels
    - Use for: Email operations, checking inbox, sending messages
    - Examples: "Check unread emails", "Send email to John", "Find emails about project X"
+   - IMPORTANT: Includes queries like "mail/email [person] saying [message]", "send message to [person]"
 
-Important routing rules:
-- Use **CHAT** for pure conversation without needing external tools
-- Use **BROWSER** for any web-based information gathering
-- Use **CALENDAR** only for explicit calendar operations
-- Use **EMAIL** only for explicit email operations
-- If query needs multiple tools, set primary_tool to the most important one and list others in secondary_tools
+CRITICAL ROUTING RULES:
+- **EMAIL** tool: ANY query with words "email", "mail", "send message", "inbox", "compose" is EMAIL
+  - "email John saying hello" → EMAIL
+  - "mail pranov about the project" → EMAIL
+  - "send message to team" → EMAIL
+  - "i want you to mail..." → EMAIL
+- **BROWSER** tool: ONLY for web searches, online research, finding information on websites
+  - "find flights" → BROWSER
+  - "check weather" → BROWSER
+  - "search for..." → BROWSER
+- **CALENDAR** tool: ONLY for calendar/scheduling operations
+- **CHAT** tool: ONLY for pure conversation without any external actions
+
+If uncertain between EMAIL and BROWSER, and query mentions "email/mail/send/message", choose EMAIL.
 
 Analyze this user request: "{user_query}"
 
