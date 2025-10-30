@@ -24,6 +24,7 @@ from browser_use.mcp.manager import MCPManager
 from browser_use.llm.messages import UserMessage
 
 from repl.prompt_optimizer import optimize_prompt, add_task_anchoring
+from repl.knowledge_loader import KnowledgeLoader
 
 
 class SessionManager:
@@ -94,6 +95,23 @@ class SessionManager:
 
 		# Tool forcing (for manual overrides like /browser, /calendar, etc.)
 		self.force_tool: Optional[str] = None
+
+		# Knowledge loader for personal context
+		self.knowledge_loader = KnowledgeLoader()
+		self.personal_context: str = ""
+
+		# Load personal knowledge on startup
+		self._load_personal_knowledge()
+
+	def _load_personal_knowledge(self):
+		"""Load personal context from knowledge directory"""
+		if self.knowledge_loader.has_knowledge():
+			self.personal_context = self.knowledge_loader.get_context()
+			knowledge_files = self.knowledge_loader.list_files()
+			if knowledge_files:
+				self.logger.success(f"✅ Loaded personal context from: {', '.join(knowledge_files)}")
+		else:
+			self.logger.info("ℹ️  No personal knowledge files found (knowledge/*.txt)")
 
 	async def initialize_browser(self):
 		"""Initialize the browser session (lazy-loaded on first browser use)"""
@@ -270,12 +288,18 @@ Respond naturally and helpfully."""
 
 		try:
 			if self.agent is None:
-				# Create new agent
+				# Create new agent with personal context
+				system_prompt_suffix = f"\n\nIMPORTANT REMINDERS:\n- Your ONLY task is: {query}\n- Do NOT switch to other tasks or examples\n- Stay focused on this specific goal\n- When you complete this task, call the 'done' action immediately\n- Do not continue to other unrelated tasks"
+
+				# Add personal context if available
+				if self.personal_context:
+					system_prompt_suffix = f"\n\n{self.personal_context}\n{system_prompt_suffix}"
+
 				agent_settings = AgentSettings(
 					use_vision=self.use_vision,
 					use_thinking=True,
 					max_actions_per_step=10,
-					system_prompt_suffix=f"\n\nIMPORTANT REMINDERS:\n- Your ONLY task is: {query}\n- Do NOT switch to other tasks or examples\n- Stay focused on this specific goal\n- When you complete this task, call the 'done' action immediately\n- Do not continue to other unrelated tasks",
+					system_prompt_suffix=system_prompt_suffix,
 				)
 
 				self.agent = Agent(
@@ -586,10 +610,15 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 
 	async def _generate_email_content(self, recipient: str, user_intent: str) -> Dict[str, str]:
 		"""Use LLM to generate email subject and body from user intent"""
+		# Include personal context if available
+		context_section = ""
+		if self.personal_context:
+			context_section = f"\n\nYour personal information and context:\n{self.personal_context}\n\nUse this information to personalize the email (e.g., your name for signature, your organization, etc.).\n"
+
 		prompt = f"""You are an email writer. Generate a professional email.
 
 RECIPIENT: {recipient}
-MESSAGE: {user_intent}
+MESSAGE: {user_intent}{context_section}
 
 Respond with ONLY valid JSON, no other text:
 {{
@@ -600,7 +629,8 @@ Respond with ONLY valid JSON, no other text:
 Rules:
 - JSON only, no markdown
 - Match the tone of the message
-- Keep it concise (2-3 sentences max)"""
+- Keep it concise (2-3 sentences max)
+- Use personal context (name, signature, etc.) if available"""
 
 		try:
 			# Call LLM to generate email content
@@ -769,11 +799,23 @@ Message ID: {message_id}
 
 		# Send email operations (CHECKED LAST to avoid false positives)
 		if any(keyword in query_lower for keyword in ['send', 'email to', 'mail to', 'write email', 'compose email']):
-			# Extract email address
-			email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', query)
+			# First, try to extract contact name and lookup email
+			to_email = None
+			name_match = re.search(r'(?:email|mail|send)\s+(?:to\s+)?([a-zA-Z]+)(?:\s+saying|\s+that|$)', query_lower)
+			if name_match:
+				contact_name = name_match.group(1)
+				looked_up_email = self.knowledge_loader.search_contact_email(contact_name)
+				if looked_up_email:
+					to_email = looked_up_email
+					self.logger.info(f"📇 Found contact '{contact_name}' → {to_email}")
 
-			if email_match:
-				to_email = email_match.group(0)
+			# Fallback: extract email address directly from query
+			if not to_email:
+				email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', query)
+				if email_match:
+					to_email = email_match.group(0)
+
+			if to_email:
 
 				# Extract user intent - everything after "saying" or "that", or the whole query
 				user_intent = ""
@@ -799,11 +841,11 @@ Message ID: {message_id}
 					'body': email_content['body']
 				}
 			else:
-				# No email address found - return error to be handled by caller
+				# No email address or contact found - return error to be handled by caller
 				# This will be caught and user will be prompted for email
 				return {
 					'operation': 'send_email_needs_address',
-					'error': f"No email address found in query. Please provide an email address (e.g., someone@example.com) or use a contact name with their email."
+					'error': f"No email address or contact found in query. Please provide an email address (e.g., someone@example.com) or a contact name from your knowledge/contacts.txt file."
 				}
 
 		return None

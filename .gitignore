@@ -1,30 +1,20 @@
-# Python virtual environments
-venv/
-.venv/
-env/
-ENV/
+# Knowledge directory (personal data)
+knowledge/*.txt
+!knowledge/README.md
 
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# OAuth tokens and credentials
-*.pickle
-*_token.pickle
-gmail_token.pickle
-calendar_token.pickle
-token.pickle
-credentials.json
-client_secret_*.json
+# Virtual environments
+venv/
+env/
+.venv
 
-# Environment variables
-.env
-.env.local
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -34,10 +24,20 @@ client_secret_*.json
 .DS_Store
 Thumbs.db
 
+# Credentials
+*.json
+!pyproject.json
+credentials.json
+token.pickle
+.env
+
+# Browser profiles
+.browser-use-profile/
+chrome-debug/
+
 # Logs
 *.log
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
+# Test files
+test_*.py
+*.pickle
