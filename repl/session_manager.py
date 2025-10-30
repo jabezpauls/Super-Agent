@@ -177,7 +177,7 @@ class SessionManager:
 			raise RuntimeError("MCP is disabled. Start REPL with MCP enabled.")
 
 		if server_type not in self.active_mcp_servers:
-			self.logger.info(f"🔌 Connecting to {server_type} MCP server...")
+			print(f"  🔌 Connecting to {server_type}...", end='', flush=True)
 
 			try:
 				# Connect to MCP server
@@ -186,10 +186,11 @@ class SessionManager:
 				# Register MCP tools if we have an agent with browser session
 				# Note: MCP tools will be registered when agent is created
 				self.active_mcp_servers.add(server_type)
-				self.logger.success(f"✅ Connected to {server_type} MCP server")
+				print(f"\r  ✅ Connected to {server_type}     ", flush=True)
 
 			except Exception as e:
-				self.logger.error(f"Failed to connect to {server_type} MCP server: {str(e)}")
+				print(f"\r  ❌ Failed to connect to {server_type}", flush=True)
+				self.logger.error(f"Error: {str(e)}")
 				raise
 
 	async def chat_response(self, query: str) -> str:
@@ -515,17 +516,15 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 			if not content:
 				raise ValueError("Could not get response from LLM")
 
-			# Debug: log raw response
-			self.logger.info(f"📄 Raw LLM response (first 200 chars): {content[:200]}")
-
 			# Extract JSON
 			if '```json' in content:
 				content = content.split('```json')[1].split('```')[0].strip()
 			elif '```' in content:
 				content = content.split('```')[1].split('```')[0].strip()
 
-			# Debug: log cleaned JSON
-			self.logger.info(f"🔍 Cleaned JSON (first 200 chars): {content[:200]}")
+			# Validate content is not empty
+			if not content or len(content.strip()) == 0:
+				raise ValueError("LLM returned empty response")
 
 			import json
 			tool_data = json.loads(content)
@@ -546,8 +545,11 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 
 			operation = tool_name_map.get(tool_data['tool'], tool_data['tool'])
 
-			self.logger.success(f"🤖 LLM selected tool: {tool_data['tool']}")
-			self.logger.info(f"💭 Reasoning: {tool_data.get('reasoning', 'N/A')}")
+			# Debug log for successful tool selection
+			import os
+			if os.getenv('DEBUG_MCP_TOOL_SELECTION') == '1':
+				self.logger.info(f"[DEBUG] ✅ LLM selected tool: {tool_data['tool']} → {operation}")
+				self.logger.info(f"[DEBUG] Reasoning: {tool_data.get('reasoning', 'N/A')}")
 
 			params = tool_data['parameters']
 
@@ -573,56 +575,64 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 			}
 
 		except Exception as e:
-			self.logger.error(f"LLM tool selection failed: {e}")
+			# Log error for debugging (can be disabled in production)
+			import os
+			if os.getenv('DEBUG_MCP_TOOL_SELECTION') == '1':
+				self.logger.error(f"[DEBUG] LLM tool selection failed: {type(e).__name__}: {str(e)}")
+				import traceback
+				traceback.print_exc()
+			# Silently fail and let regex fallback handle it
 			return None
 
 	async def _generate_email_content(self, recipient: str, user_intent: str) -> Dict[str, str]:
 		"""Use LLM to generate email subject and body from user intent"""
-		prompt = f"""Generate a professional email based on this request:
+		prompt = f"""You are an email writer. Generate a professional email.
 
-User wants to send email to: {recipient}
-User's intent/message: {user_intent}
+RECIPIENT: {recipient}
+MESSAGE: {user_intent}
 
-Generate ONLY a JSON response with this exact format (no other text):
+Respond with ONLY valid JSON, no other text:
 {{
-	"subject": "appropriate subject line here",
-	"body": "well-formatted email body here"
+  "subject": "brief subject line",
+  "body": "professional email body"
 }}
 
-The body should be professional but match the tone of the user's intent. Keep it concise."""
+Rules:
+- JSON only, no markdown
+- Match the tone of the message
+- Keep it concise (2-3 sentences max)"""
 
 		try:
-			# Call LLM to generate email content - try different methods
+			# Call LLM to generate email content
+			from browser_use.llm.messages import UserMessage
+
+			print(f"  📝 Writing email...", end='', flush=True)
+			response = await self.llm.ainvoke([UserMessage(content=prompt)])
+			print(f"\r  ✅ Email ready    ", flush=True)
+
+			# Extract clean content from response (same logic as summarization)
 			content = None
-
-			# Try browser_use's message format first
-			try:
-				from browser_use.llm.messages import UserMessage
-				response = await self.llm.ainvoke([UserMessage(content=prompt)])
-				if hasattr(response, 'content'):
-					content = response.content.strip()
-				else:
-					content = str(response).strip()
-			except (ImportError, AttributeError):
-				pass
-
-			# Fallback: try langchain format
-			if not content:
-				try:
-					from langchain_core.messages import HumanMessage
-					response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-					content = response.content.strip()
-				except (ImportError, AttributeError):
-					pass
-
-			# Fallback: try direct methods
-			if not content:
-				if hasattr(self.llm, 'acomplete'):
-					response = await self.llm.acomplete(prompt)
-					content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
-				elif hasattr(self.llm, 'complete'):
-					response = self.llm.complete(prompt)
-					content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
+			if hasattr(response, 'content'):
+				content = response.content.strip()
+			elif hasattr(response, 'completion'):
+				content = response.completion.strip()
+			elif hasattr(response, 'text'):
+				content = response.text.strip()
+			else:
+				# Fallback: try to get string representation
+				content = str(response).strip()
+				# If it looks like an object representation, extract the content field
+				if content.startswith('completion='):
+					import re
+					# Try to extract JSON from completion='...' format
+					match = re.search(r"completion='(.+?)'(?:\s|$)", content, re.DOTALL)
+					if match:
+						content = match.group(1)
+					else:
+						# Try without quotes
+						match = re.search(r'completion=(.+?)(?:\s+\w+=|$)', content, re.DOTALL)
+						if match:
+							content = match.group(1).strip()
 
 			if not content:
 				raise ValueError("Could not get response from LLM")
@@ -633,6 +643,10 @@ The body should be professional but match the tone of the user's intent. Keep it
 			elif '```' in content:
 				content = content.split('```')[1].split('```')[0].strip()
 
+			# Validate content is not empty
+			if not content or len(content.strip()) == 0:
+				raise ValueError("LLM returned empty response")
+
 			import json
 			email_data = json.loads(content)
 
@@ -641,12 +655,57 @@ The body should be professional but match the tone of the user's intent. Keep it
 				'body': email_data.get('body', user_intent)
 			}
 		except Exception as e:
-			self.logger.error(f"LLM email generation failed: {e}, using fallback")
+			# Debug logging
+			import os
+			if os.getenv('DEBUG_MCP_TOOL_SELECTION') == '1':
+				self.logger.error(f"[DEBUG] LLM email generation failed: {type(e).__name__}: {str(e)}")
+				self.logger.error(f"[DEBUG] Response was: {content[:200] if 'content' in locals() else 'N/A'}")
+			else:
+				self.logger.error(f"LLM email generation failed: {e}, using fallback")
+
 			# Fallback to simple extraction
 			return {
 				'subject': user_intent[:50] + ('...' if len(user_intent) > 50 else ''),
 				'body': user_intent
 			}
+
+	def _format_email_sent_response(self, mcp_result: str, params: Dict[str, Any]) -> str:
+		"""Format the email sent response in a clean, user-friendly way"""
+		import re
+
+		# Extract message ID from MCP result
+		message_id_match = re.search(r'Message ID:\*\*\s+(\w+)', mcp_result)
+		message_id = message_id_match.group(1) if message_id_match else 'Unknown'
+
+		# Get email details
+		to_addresses = params.get('to', [])
+		if isinstance(to_addresses, list):
+			recipients = ', '.join(to_addresses)
+		else:
+			recipients = str(to_addresses)
+
+		subject = params.get('subject', 'No Subject')
+		body = params.get('body', '')
+
+		# Truncate body if too long for display
+		if len(body) > 200:
+			body_display = body[:200] + '...'
+		else:
+			body_display = body
+
+		# Create clean response
+		response = f"""
+✅ Email sent successfully!
+
+To: {recipients}
+Subject: {subject}
+
+Message:
+{body_display}
+
+Message ID: {message_id}
+"""
+		return response.strip()
 
 	async def _parse_gmail_query(self, query: str) -> Optional[Dict[str, Any]]:
 		"""
@@ -709,7 +768,7 @@ The body should be professional but match the tone of the user's intent. Keep it
 				}
 
 		# Send email operations (CHECKED LAST to avoid false positives)
-		if any(keyword in query_lower for keyword in ['send', 'email to', 'mail to']):
+		if any(keyword in query_lower for keyword in ['send', 'email to', 'mail to', 'write email', 'compose email']):
 			# Extract email address
 			email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', query)
 
@@ -730,15 +789,21 @@ The body should be professional but match the tone of the user's intent. Keep it
 					user_intent = user_intent.replace(to_email.lower(), '').strip()
 
 				# Use LLM to generate professional email subject and body
-				self.logger.info(f"🤖 Using LLM to generate email content...")
+				self.logger.info(f"🤖 Generating email content...")
 				email_content = await self._generate_email_content(to_email, user_intent)
-				self.logger.success(f"📧 Generated - Subject: {email_content['subject']}")
 
 				return {
 					'operation': 'send_email',
 					'to': [to_email],  # Gmail expects a list
 					'subject': email_content['subject'],
 					'body': email_content['body']
+				}
+			else:
+				# No email address found - return error to be handled by caller
+				# This will be caught and user will be prompted for email
+				return {
+					'operation': 'send_email_needs_address',
+					'error': f"No email address found in query. Please provide an email address (e.g., someone@example.com) or use a contact name with their email."
 				}
 
 		return None
@@ -780,10 +845,8 @@ The body should be professional but match the tone of the user's intent. Keep it
 				# Default to recent emails
 				time_filter = {'max_results': 10}
 
-			self.logger.info(f"📧 Fetching emails with filter: {time_filter}")
-
 			# List emails
-			email_list = await self._execute_mcp_tool_direct('gmail', 'list_emails', time_filter)
+			email_list = await self._execute_mcp_tool_direct('gmail', 'list_emails', time_filter, silent=True)
 
 			# Extract email IDs from response (parse markdown)
 			import re
@@ -792,78 +855,125 @@ The body should be professional but match the tone of the user's intent. Keep it
 			if not email_ids:
 				return "No emails found for the specified time period."
 
-			# Limit to 20 emails max
-			emails_to_read = min(len(email_ids), 20)
-			self.logger.info(f"📨 Found {len(email_ids)} emails. Reading up to {emails_to_read} for summarization...")
+			# Limit to 10 emails max for better summaries
+			emails_to_read = min(len(email_ids), 10)
+			self.logger.info(f"📨 Reading {emails_to_read} emails...")
 
 			# Read emails for summarization
 			email_contents = []
 			for i, email_id in enumerate(email_ids[:emails_to_read], 1):
 				try:
-					self.logger.info(f"  📧 Reading email {i}/{emails_to_read}...")
-					email_content = await self._execute_mcp_tool_direct('gmail', 'read_email', {'email_id': email_id, 'include_attachments': False})
+					print(f"  [{i}/{emails_to_read}] Reading email {email_id[:8]}...", end='\r', flush=True)
+					email_content = await self._execute_mcp_tool_direct('gmail', 'read_email', {'email_id': email_id, 'include_attachments': False}, silent=True)
 					email_contents.append(email_content)
+					print(f"  [{i}/{emails_to_read}] ✓ Email {email_id[:8]} read    ", flush=True)
 				except Exception as e:
-					self.logger.error(f"Failed to read email {email_id}: {e}")
+					print(f"  [{i}/{emails_to_read}] ✗ Failed to read {email_id[:8]}", flush=True)
 					continue
 
 			if not email_contents:
 				return "Could not read any emails."
 
-			# Combine all email contents
+			print(f"\n  ✅ Successfully read {len(email_contents)} emails")
+
+			# Combine all email contents but limit size to avoid long processing
 			combined_emails = "\n\n---\n\n".join(email_contents)
+			# Limit to 15000 chars for faster processing
+			if len(combined_emails) > 15000:
+				combined_emails = combined_emails[:15000] + "\n\n[... content truncated for performance ...]"
 
-			# Ask LLM to summarize
-			self.logger.info(f"🤖 Asking LLM to generate comprehensive summary of {len(email_contents)} emails...")
+			summary_prompt = f"""You are an expert email analyst. Analyze and summarize the following {len(email_contents)} emails concisely.
 
-			summary_prompt = f"""You are an expert email analyst. Analyze and summarize the following {len(email_contents)} emails in detail:
+EMAILS:
+{combined_emails}
 
-{combined_emails[:30000]}
+Provide a clean, terminal-friendly summary. DO NOT use tables, pipes (|), or complex markdown. Use simple formatting:
 
-Provide a comprehensive, well-structured summary with:
-
-## 📊 Email Statistics
-- Total emails analyzed: {len(email_contents)}
+=== OVERALL SUMMARY ===
+- Total emails: {len(email_contents)}
 - Time period: {time_filter.get('query', 'recent')}
+- Brief 2-3 sentence overview
 
-## 👥 Key Senders
-List the most frequent senders and what they typically sent about
+=== EMAIL-BY-EMAIL SUMMARY ===
+For each email, provide ONE line in this format:
+[#] Sender Name - Subject
+    → Key point in 1 sentence
 
-## 📋 Main Topics & Categories
-Categorize emails by topic/theme (work, personal, newsletters, notifications, etc.)
+=== ACTION ITEMS ===
+List ONLY emails requiring immediate attention (if any):
+- Email #X: What action is needed
 
-## ⚠️ Important/Urgent Items
-Highlight any emails that require immediate attention or action
+=== KEY INSIGHTS ===
+1-2 sentence summary of patterns or important observations
 
-## 📌 Action Items
-List specific tasks or actions mentioned in the emails
+IMPORTANT RULES:
+- NO tables or pipe characters (|)
+- NO asterisks for bold (**)
+- Use simple dashes, numbers, and arrows (→)
+- Keep each email summary to 1-2 lines MAX
+- Be concise and clear"""
 
-## 💡 Key Insights
-Any patterns, trends, or notable observations
-
-Be specific and detailed. Include sender names, subject lines, and key points from individual emails where relevant."""
-
-			# Call LLM for summarization
+			# Call LLM for summarization with timeout and progress indicator
 			content = None
 			try:
 				from browser_use.llm.messages import UserMessage
-				response = await self.llm.ainvoke([UserMessage(content=summary_prompt)])
+
+				# Progress indicator task
+				async def show_progress():
+					"""Show dots while waiting"""
+					dots = 0
+					while True:
+						dots = (dots + 1) % 4
+						print(f"\r  🤖 Generating summary{'.' * dots}   ", end='', flush=True)
+						await asyncio.sleep(0.5)
+
+				# Start progress indicator
+				progress_task = asyncio.create_task(show_progress())
+
+				try:
+					# Add timeout to prevent hanging forever (60 seconds for LLM summarization)
+					response = await asyncio.wait_for(
+						self.llm.ainvoke([UserMessage(content=summary_prompt)]),
+						timeout=60.0
+					)
+				finally:
+					# Stop progress indicator
+					progress_task.cancel()
+					try:
+						await progress_task
+					except asyncio.CancelledError:
+						pass
+					print("\r  🤖 Generating summary... Done!     ", flush=True)
+
+				# Extract clean content from response
 				if hasattr(response, 'content'):
 					content = response.content.strip()
+				elif hasattr(response, 'completion'):
+					content = response.completion.strip()
+				elif hasattr(response, 'text'):
+					content = response.text.strip()
 				else:
+					# Fallback: try to get string representation
 					content = str(response).strip()
+					# If it looks like an object representation, extract the content field
+					if content.startswith('completion='):
+						import re
+						match = re.search(r"completion='(.+?)'", content, re.DOTALL)
+						if match:
+							content = match.group(1)
+			except asyncio.TimeoutError:
+				return f"⏱️ Summary generation timed out after 60 seconds. Found {len(email_contents)} emails. Try reducing the number of emails or use a faster model."
 			except Exception as e:
 				self.logger.error(f"LLM summarization failed: {e}")
-				return f"Found {len(email_contents)} emails but could not generate summary. Please check manually."
+				return f"Found {len(email_contents)} emails but could not generate summary: {str(e)}"
 
-			self.logger.success(f"✅ Summary generated successfully")
 			return content
 
 		except Exception as e:
 			self.logger.error(f"Email summarization failed: {str(e)}")
 			return f"Failed to summarize emails: {str(e)}"
 
-	async def _execute_mcp_tool_direct(self, server_type: str, operation: str, params: Dict[str, Any]) -> str:
+	async def _execute_mcp_tool_direct(self, server_type: str, operation: str, params: Dict[str, Any], silent: bool = False) -> str:
 		"""
 		Execute an MCP tool directly without using the browser agent
 
@@ -901,13 +1011,28 @@ Be specific and detailed. Include sender names, subject lines, and key points fr
 		wrapped_params = {'input_data': params}
 
 		# Call the MCP tool
-		self.logger.info(f"📞 Calling MCP tool: {tool_name}")
-		self.logger.info(f"📋 Parameters: {params}")
+		if not silent:
+			self.logger.info(f"📞 Calling MCP tool: {tool_name}")
+			self.logger.info(f"📋 Parameters: {params}")
+		elif tool_name == 'send_email':
+			# Show minimal progress for send email
+			print(f"  📤 Sending email...", end='', flush=True)
 
 		try:
-			result = await client.call_tool(tool_name, wrapped_params)
-			self.logger.success(f"✅ MCP tool completed successfully")
+			# Add timeout to prevent hanging
+			result = await asyncio.wait_for(
+				client.call_tool(tool_name, wrapped_params),
+				timeout=30.0  # 30 second timeout per tool call
+			)
+			if not silent:
+				self.logger.success(f"✅ MCP tool completed successfully")
+			elif tool_name == 'send_email':
+				print(f"\r  ✅ Email sent!     ", flush=True)
 			return str(result)
+		except asyncio.TimeoutError:
+			error_msg = f"MCP tool {tool_name} timed out after 30 seconds"
+			self.logger.error(error_msg)
+			raise TimeoutError(error_msg)
 		except Exception as e:
 			self.logger.error(f"Failed to call MCP tool {tool_name}: {str(e)}")
 			raise
@@ -926,38 +1051,50 @@ Be specific and detailed. Include sender names, subject lines, and key points fr
 		# Ensure MCP server is connected
 		await self.ensure_mcp_connected(server_type)
 
-		# Try LLM-based tool selection first
-		self.logger.header("LLM-BASED MCP TOOL SELECTION")
-		self.logger.info(f"🤖 Asking LLM to select appropriate {server_type} tool...")
-
+		# Try LLM-based tool selection first (silent mode for clean output)
 		parsed = await self._llm_select_mcp_tool(server_type, query)
 
 		# Fallback to regex-based parsing if LLM fails
 		if not parsed:
-			self.logger.error(f"LLM tool selection failed, falling back to regex parsing...")
 			if server_type == 'calendar':
 				parsed = self._parse_calendar_query(query)
 			elif server_type == 'gmail':
 				parsed = await self._parse_gmail_query(query)
 
 		if parsed:
-			self.logger.header("DIRECT MCP EXECUTION")
-			self.logger.info(f"✨ Using direct MCP call (no browser needed)")
-
 			operation = parsed.pop('operation')
+
+			# Check if this is an error response (e.g., missing email address)
+			if operation == 'send_email_needs_address':
+				error_msg = parsed.get('error', 'Unable to complete email operation')
+				self.logger.error(error_msg)
+				return f"❌ {error_msg}\n\nExample: 'send email to john@example.com saying hello'"
+
 			try:
-				result = await self._execute_mcp_tool_direct(server_type, operation, parsed)
+				# Use silent mode for send_email to reduce clutter
+				silent = (operation == 'send_email')
+				result = await self._execute_mcp_tool_direct(server_type, operation, parsed, silent=silent)
+
+				# Format send_email response nicely
+				if operation == 'send_email':
+					return self._format_email_sent_response(result, parsed)
+
 				return result
 			except Exception as e:
 				self.logger.error(f"Direct MCP execution failed: {str(e)}")
+				# Don't fall back to browser for send email operations
+				if 'send' in query.lower() and 'email' in query.lower():
+					return f"❌ Failed to send email: {str(e)}\n\nMake sure to include a valid email address."
 				self.logger.info("Falling back to agent reasoning...")
-				# Fall through to agent execution
+				# Fall through to agent execution for other operations
 
 		# Check if this is a summarization/complex task that needs multiple MCP calls
 		if any(keyword in query.lower() for keyword in ['summarize', 'summary', 'summerize']):
-			self.logger.header("COMPLEX MCP TASK - SUMMARIZATION")
-			self.logger.info(f"📊 Handling summarization without browser...")
 			return await self._handle_email_summarization(query)
+
+		# Don't use browser for send email operations - return clear error
+		if 'send' in query.lower() and 'email' in query.lower():
+			return "❌ Unable to send email. Please provide a valid email address.\n\nExample: 'send email to john@example.com saying hello world'"
 
 		# For other complex queries, use agent with MCP tools
 		self.logger.info(f"📦 Using {server_type} MCP tools (via agent reasoning)")
@@ -1000,13 +1137,8 @@ Be specific and detailed. Include sender names, subject lines, and key points fr
 			elif tool_type == ToolType.EMAIL:
 				return await self.execute_mcp_task('gmail', clean_query)
 
-		# Automatic tool routing
-		self.logger.header("TOOL ROUTING")
-
+		# Automatic tool routing (silent for clean output)
 		decision = await route_query(self.llm, query, force_tool=manual_tool)
-
-		# Log routing decision
-		self.logger.info(format_routing_decision_log(decision))
 
 		# Execute primary tool
 		if decision.primary_tool == ToolType.CHAT:
