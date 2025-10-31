@@ -211,6 +211,15 @@ class SessionManager:
 				self.logger.error(f"Error: {str(e)}")
 				raise
 
+	async def _show_loading_animation(self, message: str = "Processing"):
+		"""Display animated loading indicator"""
+		frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+		frame_idx = 0
+		while True:
+			print(f"\r  {frames[frame_idx]} {message}...", end='', flush=True)
+			frame_idx = (frame_idx + 1) % len(frames)
+			await asyncio.sleep(0.1)
+
 	async def chat_response(self, query: str) -> str:
 		"""
 		Generate a pure chat response without using tools
@@ -229,8 +238,13 @@ class SessionManager:
 
 		context = "\n".join(context_messages) if context_messages else "No previous conversation"
 
+		# Add personal context if available
+		personal_info = ""
+		if self.personal_context:
+			personal_info = f"\n\n{self.personal_context}\n\nUse this personal information when relevant to answer the user's question."
+
 		# Create chat prompt
-		prompt = f"""You are a helpful AI assistant having a natural conversation.
+		prompt = f"""You are a helpful AI assistant having a natural conversation.{personal_info}
 
 Previous conversation:
 {context}
@@ -240,23 +254,96 @@ User: {query}
 Respond naturally and helpfully."""
 
 		try:
-			# Use LLM for chat response
-			messages = [UserMessage(content=prompt)]
-			response = await self.llm.ainvoke(messages)
+			# Start loading animation
+			loading_task = asyncio.create_task(self._show_loading_animation("Thinking"))
+
+			try:
+				# Use LLM for chat response
+				messages = [UserMessage(content=prompt)]
+				response = await self.llm.ainvoke(messages)
+			finally:
+				# Stop loading animation
+				loading_task.cancel()
+				try:
+					await loading_task
+				except asyncio.CancelledError:
+					pass
+				print("\r" + " " * 50 + "\r", end='', flush=True)  # Clear the line
+
+			# Extract response text with comprehensive fallback logic
+			response_text = None
 
 			if hasattr(response, 'content'):
 				response_text = response.content
+			elif hasattr(response, 'completion'):
+				response_text = response.completion
+			elif hasattr(response, 'text'):
+				response_text = response.text
 			else:
-				response_text = str(response)
+				# Fallback: try to extract from string representation
+				response_str = str(response)
+				if response_str.startswith('completion='):
+					import re
+					# Extract content from completion='...' format
+					match = re.search(r"completion='(.+?)'(?:\s+\w+=|$)", response_str, re.DOTALL)
+					if match:
+						response_text = match.group(1)
+					else:
+						# Try to extract everything after completion=
+						match = re.search(r'completion=(.+?)(?:\s+\w+=|$)', response_str, re.DOTALL)
+						if match:
+							response_text = match.group(1).strip().strip("'\"")
+				else:
+					response_text = response_str
+
+			if not response_text:
+				response_text = "I apologize, but I couldn't generate a response."
+
+			# Clean up response text
+			response_text = str(response_text).strip()
 
 			# Add to conversation history
 			self.conversation_history.append((query, response_text))
 
-			return response_text
+			# Format response with proper markdown rendering
+			return self._format_chat_response(response_text)
 
 		except Exception as e:
 			self.logger.error(f"Chat response failed: {str(e)}")
 			return f"I apologize, but I encountered an error: {str(e)}"
+
+	def _format_chat_response(self, text: str) -> str:
+		"""
+		Format chat response with proper rendering of markdown-like elements
+
+		Args:
+			text: Raw response text
+
+		Returns:
+			Formatted text with ANSI codes for terminal display
+		"""
+		# ANSI codes for formatting
+		BOLD = '\033[1m'
+		RESET = '\033[0m'
+		CYAN = '\033[96m'
+
+		# Replace **bold** with ANSI bold
+		import re
+		formatted = re.sub(r'\*\*(.+?)\*\*', f'{BOLD}\\1{RESET}', text)
+
+		# Replace `code` with cyan color
+		formatted = re.sub(r'`(.+?)`', f'{CYAN}\\1{RESET}', formatted)
+
+		# Handle escaped newlines
+		formatted = formatted.replace('\\n', '\n')
+
+		# Prepend emoji to the first line
+		lines = formatted.split('\n')
+		if lines:
+			lines[0] = f"💬 {lines[0]}"
+			formatted = '\n'.join(lines)
+
+		return formatted
 
 	async def execute_browser_task(self, query: str) -> str:
 		"""
@@ -505,40 +592,50 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 }}"""
 
 		try:
-			# Call LLM - try different methods based on what's available
-			content = None
-
-			# Try browser_use's message format first
+			# Call LLM with loading animation
+			loading_task = asyncio.create_task(self._show_loading_animation("Analyzing"))
 			try:
-				from browser_use.llm.messages import UserMessage
-				response = await self.llm.ainvoke([UserMessage(content=prompt)])
-				if hasattr(response, 'content'):
-					content = response.content.strip()
-				else:
-					content = str(response).strip()
-			except (ImportError, AttributeError):
-				pass
+				content = None
 
-			# Fallback: try langchain format
-			if not content:
+				# Try browser_use's message format first
 				try:
-					from langchain_core.messages import HumanMessage
-					response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-					content = response.content.strip()
+					from browser_use.llm.messages import UserMessage
+					response = await self.llm.ainvoke([UserMessage(content=prompt)])
+					if hasattr(response, 'content'):
+						content = response.content.strip()
+					else:
+						content = str(response).strip()
 				except (ImportError, AttributeError):
 					pass
 
-			# Fallback: try direct methods
-			if not content:
-				if hasattr(self.llm, 'acomplete'):
-					response = await self.llm.acomplete(prompt)
-					content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
-				elif hasattr(self.llm, 'complete'):
-					response = self.llm.complete(prompt)
-					content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
+				# Fallback: try langchain format
+				if not content:
+					try:
+						from langchain_core.messages import HumanMessage
+						response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+						content = response.content.strip()
+					except (ImportError, AttributeError):
+						pass
 
-			if not content:
-				raise ValueError("Could not get response from LLM")
+				# Fallback: try direct methods
+				if not content:
+					if hasattr(self.llm, 'acomplete'):
+						response = await self.llm.acomplete(prompt)
+						content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
+					elif hasattr(self.llm, 'complete'):
+						response = self.llm.complete(prompt)
+						content = response.text.strip() if hasattr(response, 'text') else str(response).strip()
+
+				if not content:
+					raise ValueError("Could not get response from LLM")
+			finally:
+				# Stop loading animation
+				loading_task.cancel()
+				try:
+					await loading_task
+				except asyncio.CancelledError:
+					pass
+				print("\r" + " " * 50 + "\r", end='', flush=True)  # Clear the line
 
 			# Extract JSON
 			if '```json' in content:
@@ -1171,7 +1268,6 @@ IMPORTANT RULES:
 				if self.disable_chat:
 					self.logger.error("Pure chat mode is disabled")
 					return "Chat mode disabled"
-				self.logger.header("CHAT RESPONSE")
 				return await self.chat_response(clean_query)
 
 			elif tool_type == ToolType.BROWSER:
@@ -1183,8 +1279,17 @@ IMPORTANT RULES:
 			elif tool_type == ToolType.EMAIL:
 				return await self.execute_mcp_task('gmail', clean_query)
 
-		# Automatic tool routing (silent for clean output)
-		decision = await route_query(self.llm, query, force_tool=manual_tool)
+		# Automatic tool routing with loading animation
+		loading_task = asyncio.create_task(self._show_loading_animation("Tool Routing"))
+		try:
+			decision = await route_query(self.llm, query, force_tool=manual_tool)
+		finally:
+			loading_task.cancel()
+			try:
+				await loading_task
+			except asyncio.CancelledError:
+				pass
+			print("\r" + " " * 50 + "\r", end='', flush=True)  # Clear the line
 
 		# Execute primary tool
 		if decision.primary_tool == ToolType.CHAT:
@@ -1192,7 +1297,6 @@ IMPORTANT RULES:
 				self.logger.warning("Pure chat mode is disabled, using browser instead")
 				return await self.execute_browser_task(query)
 
-			self.logger.header("CHAT RESPONSE")
 			return await self.chat_response(query)
 
 		elif decision.primary_tool == ToolType.BROWSER:
