@@ -125,4 +125,10 @@ def add_task_anchoring(query: str) -> str:
 	"""
 	return f"""TASK: {query}
 
-IMPORTANT: Focus ONLY on this task. Do not switch to other tasks or examples. Complete this specific goal and nothing else."""
+IMPORTANT: Focus ONLY on this task. Do not switch to other tasks or examples. Complete this specific goal and nothing else.
+
+WHEN YOU CALL done():
+- Include the ACTUAL extracted data/information in the text field
+- NEVER say just "task completed" or "information gathered"
+- Provide the real content so the user doesn't need to visit the page
+- Example: "Dr. Paul Dhinakaran is the Chancellor. He holds MBA and PhD degrees and heads Jesus Calls Ministry..." """
