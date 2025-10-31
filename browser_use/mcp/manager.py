@@ -52,6 +52,18 @@ MCP_SERVER_CONFIGS = {
 			'MCP_GMAIL_PORT': str(os.getenv('MCP_GMAIL_PORT', 8001)),
 			'BROWSER': os.getenv('BROWSER', '/usr/bin/google-chrome')  # For OAuth browser launch
 		}
+	),
+	'sheets': MCPServerConfig(
+		name='google-sheets',
+		command=sys.executable,
+		args=['scripts/mcp_sheets_server.py'],
+		port=8003,
+		env={
+			'GOOGLE_CREDENTIALS_PATH': os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json'),
+			'GOOGLE_TOKEN_PATH': os.getenv('GOOGLE_TOKEN_PATH', 'sheets_token.pickle'),
+			'GOOGLE_SERVICE_ACCOUNT_FILE': os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', ''),
+			'BROWSER': os.getenv('BROWSER', '/usr/bin/google-chrome')  # For OAuth browser launch
+		}
 	)
 }
 

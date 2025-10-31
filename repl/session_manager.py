@@ -1420,6 +1420,9 @@ IMPORTANT RULES:
 			elif tool_type == ToolType.EMAIL:
 				return await self.execute_mcp_task('gmail', clean_query)
 
+			elif tool_type == ToolType.SHEETS:
+				return await self.execute_mcp_task('sheets', clean_query)
+
 		# Automatic tool routing with loading animation
 		loading_task = asyncio.create_task(self._show_loading_animation("Tool Routing"))
 		try:
@@ -1448,6 +1451,9 @@ IMPORTANT RULES:
 
 		elif decision.primary_tool == ToolType.EMAIL:
 			return await self.execute_mcp_task('gmail', query)
+
+		elif decision.primary_tool == ToolType.SHEETS:
+			return await self.execute_mcp_task('sheets', query)
 
 		# Fallback to browser if unknown tool
 		else:

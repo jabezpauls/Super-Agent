@@ -19,6 +19,7 @@ class ToolType(Enum):
 	BROWSER = "browser"
 	CALENDAR = "calendar"
 	EMAIL = "email"
+	SHEETS = "sheets"
 
 
 @dataclass
@@ -54,12 +55,21 @@ Available tools:
    - Examples: "Check unread emails", "Send email to John", "Find emails about project X"
    - IMPORTANT: Includes queries like "mail/email [person] saying [message]", "send message to [person]"
 
+5. **SHEETS** - Google Sheets operations (create, read, write, update spreadsheets)
+   - Use for: Spreadsheet operations, data management, creating tables
+   - Examples: "Create a spreadsheet", "Read data from sheet", "Update row 5", "Add data to spreadsheet"
+   - Keywords: "spreadsheet", "sheet", "excel", "table", "row", "column", "cell"
+
 CRITICAL ROUTING RULES:
 - **EMAIL** tool: ANY query with words "email", "mail", "send message", "inbox", "compose" is EMAIL
   - "email John saying hello" → EMAIL
   - "mail pranov about the project" → EMAIL
   - "send message to team" → EMAIL
   - "i want you to mail..." → EMAIL
+- **SHEETS** tool: ANY query with "spreadsheet", "sheet", "excel", "table" + action verbs is SHEETS
+  - "create a spreadsheet" → SHEETS
+  - "update the sheet" → SHEETS
+  - "read data from spreadsheet" → SHEETS
 - **BROWSER** tool: ONLY for web searches, online research, finding information on websites
   - "find flights" → BROWSER
   - "check weather" → BROWSER
@@ -68,6 +78,7 @@ CRITICAL ROUTING RULES:
 - **CHAT** tool: ONLY for pure conversation without any external actions
 
 If uncertain between EMAIL and BROWSER, and query mentions "email/mail/send/message", choose EMAIL.
+If uncertain between SHEETS and BROWSER, and query mentions "spreadsheet/sheet/excel", choose SHEETS.
 
 Analyze this user request: "{user_query}"
 
@@ -88,6 +99,7 @@ def parse_manual_override(query: str) -> Optional[ToolType]:
 	- /browser <query> - Force browser automation
 	- /calendar or /calender <query> - Force calendar MCP
 	- /email or /mail <query> - Force email/Gmail MCP
+	- /sheets or /sheet <query> - Force Google Sheets MCP
 	- /chat <query> - Force pure chat (no tools)
 
 	Returns None if no override found
@@ -101,6 +113,8 @@ def parse_manual_override(query: str) -> Optional[ToolType]:
 		return ToolType.CALENDAR
 	elif query_lower.startswith('/email ') or query_lower.startswith('/mail '):
 		return ToolType.EMAIL
+	elif query_lower.startswith('/sheets ') or query_lower.startswith('/sheet '):
+		return ToolType.SHEETS
 	elif query_lower.startswith('/chat '):
 		return ToolType.CHAT
 
@@ -118,6 +132,8 @@ def strip_command_prefix(query: str) -> str:
 		'/calender ',  # Common misspelling
 		'/email ',
 		'/mail ',      # Shorter alias
+		'/sheets ',
+		'/sheet ',     # Shorter alias
 		'/chat '
 	]
 
@@ -244,6 +260,16 @@ def fallback_routing(query: str, error: str = "") -> ToolDecision:
 			primary_tool=ToolType.EMAIL,
 			secondary_tools=[],
 			reasoning=f"Fallback routing detected email keywords (LLM error: {error})",
+			specific_actions=[query],
+			original_query=query
+		)
+
+	# Sheets keywords
+	if any(word in query_lower for word in ['spreadsheet', 'sheet', 'excel', 'table', 'row', 'column', 'cell']):
+		return ToolDecision(
+			primary_tool=ToolType.SHEETS,
+			secondary_tools=[],
+			reasoning=f"Fallback routing detected sheets keywords (LLM error: {error})",
 			specific_actions=[query],
 			original_query=query
 		)

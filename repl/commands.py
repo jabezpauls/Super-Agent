@@ -91,6 +91,15 @@ class CommandHandler:
 			self.session.force_tool = None
 			return True
 
+		elif command in ['sheets', 'sheet']:  # Support shorter alias
+			if not args:
+				self.logger.error("Usage: /sheets or /sheet <query>")
+				return True
+			self.session.force_tool = 'sheets'
+			await self.session.process_query(args)
+			self.session.force_tool = None
+			return True
+
 		elif command == 'chat':
 			if not args:
 				self.logger.error("Usage: /chat <message>")
@@ -103,14 +112,14 @@ class CommandHandler:
 		# MCP management commands (new)
 		elif command == 'connect':
 			if not args:
-				self.logger.error("Usage: /connect <calendar|gmail>")
+				self.logger.error("Usage: /connect <calendar|gmail|sheets>")
 				return True
 			await self._connect_mcp(args)
 			return True
 
 		elif command == 'disconnect':
 			if not args:
-				self.logger.error("Usage: /disconnect <calendar|gmail>")
+				self.logger.error("Usage: /disconnect <calendar|gmail|sheets>")
 				return True
 			await self._disconnect_mcp(args)
 			return True
@@ -149,18 +158,20 @@ class CommandHandler:
 		print("  /calender <query>        - Alias for /calendar")
 		print("  /email <query>           - Force use of email/Gmail tool")
 		print("  /mail <query>            - Alias for /email")
+		print("  /sheets <query>          - Force use of Google Sheets tool")
+		print("  /sheet <query>           - Alias for /sheets")
 		print("  /chat <message>          - Force pure chat response")
 
 		print("\n🔌 MCP Server Management:")
-		print("  /connect <server>    - Connect to MCP server (calendar, gmail)")
+		print("  /connect <server>    - Connect to MCP server (calendar, gmail, sheets)")
 		print("  /disconnect <server> - Disconnect from MCP server")
 		print("  /status              - Show MCP connection status")
 		print("  /tools               - List available tools")
 
 		print("\n💡 Tips:")
 		print("  - Just type naturally - the AI will choose the right tool automatically")
-		print("  - Calendar and email tools auto-connect on first use")
-		print("  - Use /browser, /mail, /calendar, /chat to force specific tools")
+		print("  - Calendar, email, and sheets tools auto-connect on first use")
+		print("  - Use /browser, /mail, /calendar, /sheets, /chat to force specific tools")
 		print("  - Example: '/browser remember to meet dentist at 6pm' forces browser use")
 
 		print("\n🌐 Using Existing Chrome:")
