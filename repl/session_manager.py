@@ -401,9 +401,23 @@ When you can't complete a task:
 Remember: You interact with websites as a user would, so be patient with loading times and dynamic content.
 
 CURRENT TASK: {query}
-- Focus ONLY on this specific task
-- When you find information or complete the task, call 'done' with the ACTUAL results in the text field
-- Do NOT use vague messages like "task completed" - provide the real data/information you found
+
+CRITICAL COMPLETION RULES:
+1. When you extract/find information, you MUST include the ACTUAL DATA in the done() text field
+2. NEVER use generic messages like:
+   ❌ "Task completed successfully"
+   ❌ "All information has been gathered"
+   ❌ "The task has been completed as per request"
+3. ALWAYS provide the REAL extracted content:
+   ✅ "Dr. Paul Dhinakaran is the Chancellor. He holds MBA and PhD degrees..."
+   ✅ "Found 5 results: 1) Product A costs $50, 2) Product B costs $30..."
+   ✅ "The weather in Paris is 15°C, cloudy with 60% chance of rain"
+
+EXAMPLE - SEARCH TASK:
+Bad done(): "Successfully found the information about the chancellor"
+Good done(): "Dr. Paul Dhinakaran, MBA, PhD, is the Chancellor of Karunya Institute. He is an academician, educationist, and evangelist. He heads Jesus Calls International Ministry and produces Prayer Time TV in 12 languages. Under his leadership, Karunya achieved autonomy in 1999 and Deemed University status in 2004."
+
+Your done() message should be usable AS-IS by the user - no need to visit the page to get the info!
 """
 
 				# Add personal context if available
