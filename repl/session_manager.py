@@ -482,23 +482,28 @@ Respond naturally and helpfully."""
 				# Create new agent with personal context and improved system prompt
 				system_prompt_suffix = """
 ═══════════════════════════════════════════════════
-⚠️  CRITICAL: HOW TO COMPLETE TASKS  ⚠️
+⚠️  CRITICAL: HOW TO WRITE done() MESSAGES  ⚠️
 ═══════════════════════════════════════════════════
 
-When calling done(text="..."), PUT THE ACTUAL DATA YOU FOUND IN THE TEXT FIELD.
+Your done(text="...") should be a COMPLETE ANSWER with the actual data found.
 
-❌ WRONG: done(text="Task completed successfully")
-❌ WRONG: done(text="All information has been gathered")
-✅ RIGHT: done(text="Dr. Paul Dhinakaran, MBA, PhD, is Chancellor...")
+❌ WRONG: "Task completed successfully"
+❌ WRONG: "All information has been gathered"
+❌ WRONG: Just raw data like "John Smith" with no context
 
-If you extracted information, COPY IT WORD-FOR-WORD into done().
-The user needs the DATA, not a status report.
+✅ RIGHT FORMAT:
+"I found the information you requested. The Chancellor of Karunya University is Dr. Paul Dhinakaran, who holds an MBA and PhD. He is an academician, educationist, and heads Jesus Calls International Ministry. Under his leadership, Karunya achieved Deemed University status in 2004."
+
+Include:
+1. Brief context of what you did
+2. The ACTUAL DATA you found (not "I found it" - include the data itself)
+3. Formatted as a readable answer, not just a data dump
 
 ═══════════════════════════════════════════════════
 
 CURRENT TASK: {query}
 
-You are a browser automation agent. Navigate websites, extract information, fill forms, and complete user tasks. When you find information, put it directly in done(text="actual data here").
+You are a browser automation agent. Navigate websites, extract information, and provide complete answers to user requests.
 """
 
 				# Add personal context if available

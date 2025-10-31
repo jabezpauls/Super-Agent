@@ -127,10 +127,10 @@ def add_task_anchoring(query: str) -> str:
 TASK: {query}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️  When you call done(), INCLUDE THE DATA YOU FOUND:
+⚠️  Your done() message must be a COMPLETE ANSWER with actual data.
 
-❌ NO: "Task completed"
-✅ YES: "Chancellor is Dr. Paul Dhinakaran, MBA, PhD..."
+❌ NO: "Task completed successfully"
+❌ NO: Just "Donald Trump" with no context
+✅ YES: "I searched for information about the US President. The current president is Donald Trump, who took office in January 2025 for his second term..."
 
-Copy the extracted information into done(text="...").
-Do NOT just say the task is complete."""
+Write a readable answer that includes the actual data you found, not just a status message."""
