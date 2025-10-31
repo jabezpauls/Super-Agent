@@ -4,6 +4,7 @@ Manages browser sessions, agent state, MCP connections, and intelligent tool rou
 """
 
 import asyncio
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
@@ -462,12 +463,18 @@ Your done() message should be usable AS-IS by the user - no need to visit the pa
 					self.logger.success("Task completed successfully")
 					self.logger.info("\nFinal Result:")
 					self.logger.info(f"{final_result}")
+
+					# Display saved files if any
+					self._display_saved_files()
+
 					return final_result
 				else:
 					self.logger.info("Task completed but no final result returned")
+					self._display_saved_files()
 					return "Task completed"
 			else:
 				self.logger.info("Task completed")
+				self._display_saved_files()
 				return "Task completed"
 
 		except KeyboardInterrupt:
@@ -1412,6 +1419,32 @@ IMPORTANT RULES:
 			return result
 
 		self.agent.step = verbose_step
+
+	def _display_saved_files(self):
+		"""Display list of saved files from browseruse_agent_data directory"""
+		data_dir = 'browseruse_agent_data'
+
+		if not os.path.exists(data_dir):
+			return
+
+		files = [f for f in os.listdir(data_dir) if f.endswith('.md')]
+
+		if not files:
+			return
+
+		# Sort by modification time (most recent first)
+		files_with_time = [(f, os.path.getmtime(os.path.join(data_dir, f))) for f in files]
+		files_sorted = sorted(files_with_time, key=lambda x: x[1], reverse=True)
+
+		self.logger.info("\n📁 Saved Files:")
+		for filename, _ in files_sorted[:5]:  # Show last 5 files
+			filepath = os.path.join(data_dir, filename)
+			file_size = os.path.getsize(filepath)
+			size_kb = file_size / 1024
+			self.logger.info(f"  - {filepath} ({size_kb:.1f} KB)")
+
+		if len(files_sorted) > 5:
+			self.logger.info(f"  ... and {len(files_sorted) - 5} more files")
 
 	async def clear_session(self):
 		"""Clear the current browser session and agent"""
