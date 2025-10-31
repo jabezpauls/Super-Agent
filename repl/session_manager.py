@@ -114,6 +114,85 @@ class SessionManager:
 		else:
 			self.logger.info("ℹ️  No personal knowledge files found (knowledge/*.txt)")
 
+	async def _inject_agent_glow(self):
+		"""Inject CSS for visual agent activity indicator (glow effect)"""
+		if not self.browser_session:
+			return
+
+		try:
+			# Get the CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+
+			# Inject CSS and control functions for the glow effect
+			script = """
+			(function() {
+				// Create style element if it doesn't exist
+				if (!document.getElementById('agent-glow-style')) {
+					const style = document.createElement('style');
+					style.id = 'agent-glow-style';
+					style.textContent = `
+						@keyframes agent-glow-pulse {
+							0%, 100% { box-shadow: 0 0 20px 5px rgba(0, 255, 255, 0.6), inset 0 0 20px 5px rgba(0, 255, 255, 0.3); }
+							50% { box-shadow: 0 0 30px 10px rgba(0, 255, 255, 0.9), inset 0 0 30px 10px rgba(0, 255, 255, 0.5); }
+						}
+
+						.agent-working-glow {
+							animation: agent-glow-pulse 2s ease-in-out infinite !important;
+							outline: 3px solid rgba(0, 255, 255, 0.8) !important;
+							outline-offset: -3px !important;
+						}
+					`;
+					document.head.appendChild(style);
+				}
+
+				// Add global functions to show/hide glow
+				window.__showAgentGlow = function() {
+					document.documentElement.classList.add('agent-working-glow');
+				};
+
+				window.__hideAgentGlow = function() {
+					document.documentElement.classList.remove('agent-working-glow');
+				};
+			})();
+			"""
+
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': script, 'returnByValue': True},
+				session_id=cdp_session.session_id
+			)
+
+		except Exception as e:
+			# Silently fail - glow is just a visual enhancement
+			pass
+
+	async def _show_agent_glow(self):
+		"""Show the agent activity glow"""
+		if not self.browser_session:
+			return
+
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': 'if (window.__showAgentGlow) window.__showAgentGlow();', 'returnByValue': True},
+				session_id=cdp_session.session_id
+			)
+		except Exception:
+			pass
+
+	async def _hide_agent_glow(self):
+		"""Hide the agent activity glow"""
+		if not self.browser_session:
+			return
+
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': 'if (window.__hideAgentGlow) window.__hideAgentGlow();', 'returnByValue': True},
+				session_id=cdp_session.session_id
+			)
+		except Exception:
+			pass
+
 	async def initialize_browser(self):
 		"""Initialize the browser session (lazy-loaded on first browser use)"""
 		if self.browser_session is not None:
