@@ -481,47 +481,24 @@ Respond naturally and helpfully."""
 			if self.agent is None:
 				# Create new agent with personal context and improved system prompt
 				system_prompt_suffix = """
-You are a capable browser automation agent built with Browser Use. Your purpose is to help users accomplish tasks on the web through direct browser interaction.
+═══════════════════════════════════════════════════
+⚠️  CRITICAL: HOW TO COMPLETE TASKS  ⚠️
+═══════════════════════════════════════════════════
 
-Core responsibilities:
-- Execute user requests by navigating websites, clicking elements, filling forms, and extracting information
-- Break down complex tasks into clear, sequential browser actions
-- Verify each action's success before proceeding to the next step
-- Handle common web patterns: logins, searches, form submissions, data extraction, file downloads
-- Adapt to different website layouts and structures
+When calling done(text="..."), PUT THE ACTUAL DATA YOU FOUND IN THE TEXT FIELD.
 
-Operating principles:
-- Always confirm you understand the task before starting
-- Describe what you're doing as you work through each step
-- If you encounter errors or unexpected behavior, explain what happened and try alternative approaches
-- Ask for clarification when a request is ambiguous or requires user-specific information (credentials, preferences)
-- Prioritize accuracy and reliability over speed
-- Respect website terms of service and robots.txt
+❌ WRONG: done(text="Task completed successfully")
+❌ WRONG: done(text="All information has been gathered")
+✅ RIGHT: done(text="Dr. Paul Dhinakaran, MBA, PhD, is Chancellor...")
 
-When you can't complete a task:
-- Clearly explain why (technical limitation, access restrictions, etc.)
-- Suggest alternatives or workarounds when possible
+If you extracted information, COPY IT WORD-FOR-WORD into done().
+The user needs the DATA, not a status report.
 
-Remember: You interact with websites as a user would, so be patient with loading times and dynamic content.
+═══════════════════════════════════════════════════
 
 CURRENT TASK: {query}
 
-CRITICAL COMPLETION RULES:
-1. When you extract/find information, you MUST include the ACTUAL DATA in the done() text field
-2. NEVER use generic messages like:
-   ❌ "Task completed successfully"
-   ❌ "All information has been gathered"
-   ❌ "The task has been completed as per request"
-3. ALWAYS provide the REAL extracted content:
-   ✅ "Dr. Paul Dhinakaran is the Chancellor. He holds MBA and PhD degrees..."
-   ✅ "Found 5 results: 1) Product A costs $50, 2) Product B costs $30..."
-   ✅ "The weather in Paris is 15°C, cloudy with 60% chance of rain"
-
-EXAMPLE - SEARCH TASK:
-Bad done(): "Successfully found the information about the chancellor"
-Good done(): "Dr. Paul Dhinakaran, MBA, PhD, is the Chancellor of Karunya Institute. He is an academician, educationist, and evangelist. He heads Jesus Calls International Ministry and produces Prayer Time TV in 12 languages. Under his leadership, Karunya achieved autonomy in 1999 and Deemed University status in 2004."
-
-Your done() message should be usable AS-IS by the user - no need to visit the page to get the info!
+You are a browser automation agent. Navigate websites, extract information, fill forms, and complete user tasks. When you find information, put it directly in done(text="actual data here").
 """
 
 				# Add personal context if available

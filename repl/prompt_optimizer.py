@@ -123,25 +123,14 @@ def add_task_anchoring(query: str) -> str:
 	Returns:
 		Query with task anchoring added
 	"""
-	return f"""TASK: {query}
+	return f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TASK: {query}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANT: Focus ONLY on this task. Do not switch to other tasks or examples. Complete this specific goal and nothing else.
+⚠️  When you call done(), INCLUDE THE DATA YOU FOUND:
 
-⚠️ CRITICAL: WHEN YOU CALL done(text="..."):
-YOU MUST COPY THE ACTUAL EXTRACTED DATA INTO THE text FIELD!
+❌ NO: "Task completed"
+✅ YES: "Chancellor is Dr. Paul Dhinakaran, MBA, PhD..."
 
-❌ FORBIDDEN - DO NOT USE THESE PHRASES:
-- "The requested task has been fully completed"
-- "All relevant steps have been executed successfully"
-- "All required information has been gathered"
-- "Task completed as per user's instructions"
-- "The task has been completed successfully"
-
-✅ REQUIRED - USE THE REAL DATA YOU FOUND:
-If you extracted: "Dr. Paul Dhinakaran is the Chancellor of Karunya..."
-Then done(text="Dr. Paul Dhinakaran is the Chancellor of Karunya...")
-
-NOT: done(text="Task completed successfully")
-
-The user wants the ACTUAL INFORMATION, not a status update!
-Copy-paste the extracted content directly into done()."""
+Copy the extracted information into done(text="...").
+Do NOT just say the task is complete."""
