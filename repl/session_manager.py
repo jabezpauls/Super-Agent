@@ -123,8 +123,8 @@ class SessionManager:
 			# Get the CDP session
 			cdp_session = await self.browser_session.get_or_create_cdp_session()
 
-			# Inject CSS and control functions for the glow effect
-			script = """
+			# Glow script that will be injected on every page
+			glow_script = """
 			(function() {
 				// Create style element if it doesn't exist
 				if (!document.getElementById('agent-glow-style')) {
@@ -156,10 +156,21 @@ class SessionManager:
 			})();
 			"""
 
+			# Inject into current page
 			await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': script, 'returnByValue': True},
+				params={'expression': glow_script, 'returnByValue': True},
 				session_id=cdp_session.session_id
 			)
+
+			# Also add as init script so it's injected on every new page load
+			try:
+				await cdp_session.cdp_client.send.Page.addScriptToEvaluateOnNewDocument(
+					params={'source': glow_script},
+					session_id=cdp_session.session_id
+				)
+			except Exception:
+				# Ignore if this fails - glow on current page still works
+				pass
 
 		except Exception as e:
 			# Silently fail - glow is just a visual enhancement
@@ -171,13 +182,22 @@ class SessionManager:
 			return
 
 		try:
+			# Re-inject the glow script to ensure it's present on current page
+			await self._inject_agent_glow()
+
+			# Now show the glow
 			cdp_session = await self.browser_session.get_or_create_cdp_session()
-			await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': 'if (window.__showAgentGlow) window.__showAgentGlow();', 'returnByValue': True},
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': 'if (window.__showAgentGlow) { window.__showAgentGlow(); true; } else { false; }', 'returnByValue': True},
 				session_id=cdp_session.session_id
 			)
-		except Exception:
-			pass
+
+			# Debug: log if glow was shown
+			if os.getenv('DEBUG_GLOW') == '1':
+				self.logger.info(f"[DEBUG] Glow shown: {result}")
+		except Exception as e:
+			if os.getenv('DEBUG_GLOW') == '1':
+				self.logger.error(f"[DEBUG] Failed to show glow: {e}")
 
 	async def _hide_agent_glow(self):
 		"""Hide the agent activity glow"""
@@ -190,8 +210,9 @@ class SessionManager:
 				params={'expression': 'if (window.__hideAgentGlow) window.__hideAgentGlow();', 'returnByValue': True},
 				session_id=cdp_session.session_id
 			)
-		except Exception:
-			pass
+		except Exception as e:
+			if os.getenv('DEBUG_GLOW') == '1':
+				self.logger.error(f"[DEBUG] Failed to hide glow: {e}")
 
 	async def initialize_browser(self):
 		"""Initialize the browser session (lazy-loaded on first browser use)"""
@@ -254,6 +275,9 @@ class SessionManager:
 
 			self.logger.info("Creating BrowserSession...")
 			self.browser_session = BrowserSession(**browser_session_args)
+
+			# Inject the agent glow CSS/JS
+			await self._inject_agent_glow()
 
 			if self.cdp_url:
 				self.logger.success("✅ Connected to existing Chrome successfully!")
@@ -526,19 +550,27 @@ Your done() message should be usable AS-IS by the user - no need to visit the pa
 				# Add verbose logging
 				self._setup_verbose_logging()
 
-				# Run the agent
+				# Run the agent (glow will be shown in step wrapper)
 				result = await self.agent.run(max_steps=self.max_steps)
 			else:
 				# Add new task to existing agent
 				self.agent.add_new_task(optimized_prompt)
+
+				# Run the agent (glow will be shown in step wrapper)
 				result = await self.agent.run(max_steps=self.max_steps)
 
 			# Display final results
 			self.logger.header("EXECUTION COMPLETE")
 
+			# Hide glow when done
+			await self._hide_agent_glow()
+
 			if result and hasattr(result, 'final_result'):
 				final_result = result.final_result()
 				if final_result:
+					# Post-process generic messages - replace with actual extracted content
+					final_result = self._post_process_generic_completion(final_result, result)
+
 					self.logger.success("Task completed successfully")
 					self.logger.info("\nFinal Result:")
 					self.logger.info(f"{final_result}")
@@ -557,10 +589,12 @@ Your done() message should be usable AS-IS by the user - no need to visit the pa
 				return "Task completed"
 
 		except KeyboardInterrupt:
+			await self._hide_agent_glow()
 			self.logger.error("Task interrupted by user")
 			return "Interrupted"
 
 		except Exception as e:
+			await self._hide_agent_glow()
 			self.logger.error(f"Task failed: {str(e)}")
 			import traceback
 			if hasattr(self.logger, 'verbose') and self.logger.verbose:
@@ -1448,11 +1482,17 @@ IMPORTANT RULES:
 
 		original_step = self.agent.step
 		step_counter = [0]
+		glow_shown = [False]
 
 		async def verbose_step(*args, **kwargs):
 			"""Wrapper to log each step"""
 			step_counter[0] += 1
 			self.logger.step(step_counter[0], "Processing...")
+
+			# Show glow on first step (when page is loaded)
+			if not glow_shown[0]:
+				await self._show_agent_glow()
+				glow_shown[0] = True
 
 			result = await original_step(*args, **kwargs)
 
@@ -1524,6 +1564,89 @@ IMPORTANT RULES:
 
 		if len(files_sorted) > 5:
 			self.logger.info(f"  ... and {len(files_sorted) - 5} more files")
+
+	def _post_process_generic_completion(self, final_result: str, agent_result) -> str:
+		"""
+		Post-process generic completion messages to replace with actual extracted content
+
+		Args:
+			final_result: The done() text from the agent
+			agent_result: The full agent result object with history
+
+		Returns:
+			Improved final result with actual data if generic message detected
+		"""
+		# List of forbidden generic phrases
+		generic_phrases = [
+			"the requested task has been fully completed",
+			"all relevant steps have been executed successfully",
+			"all required information has been gathered",
+			"task completed as per user's instructions",
+			"the task has been completed successfully",
+			"all necessary information has been gathered",
+			"task has been fully completed according to the user request",
+		]
+
+		# Check if final_result contains any forbidden phrases
+		final_lower = final_result.lower()
+		is_generic = any(phrase in final_lower for phrase in generic_phrases)
+
+		if not is_generic:
+			# Result is good, return as-is
+			return final_result
+
+		# Generic message detected - try to extract actual content from history
+		self.logger.info("\n⚠️  Generic completion message detected, searching for extracted content...")
+
+		# Try to find extracted content in agent history
+		extracted_content = self._find_extracted_content_in_history(agent_result)
+
+		if extracted_content:
+			self.logger.success("✅ Found extracted content, using it instead of generic message")
+			return extracted_content
+		else:
+			self.logger.warning("⚠️  No extracted content found in history, keeping generic message")
+			return final_result
+
+	def _find_extracted_content_in_history(self, agent_result) -> Optional[str]:
+		"""
+		Search agent history for extracted content
+
+		Args:
+			agent_result: The agent result object
+
+		Returns:
+			Extracted content string if found, None otherwise
+		"""
+		try:
+			# Access agent's message manager to get history
+			if not hasattr(agent_result, 'history') and hasattr(self.agent, '_message_manager'):
+				message_manager = self.agent._message_manager
+				if hasattr(message_manager, 'state') and hasattr(message_manager.state, 'agent_history_items'):
+					history_items = message_manager.state.agent_history_items
+
+					# Search backwards through history for extract actions
+					for item in reversed(history_items):
+						if hasattr(item, 'result') and item.result:
+							# Check each action result in the step
+							for action_result in (item.result if isinstance(item.result, list) else [item.result]):
+								if hasattr(action_result, 'extracted_content') and action_result.extracted_content:
+									# Found extracted content!
+									content = action_result.extracted_content
+
+									# Extract the <result> section if it exists
+									if '<result>' in content and '</result>' in content:
+										start = content.index('<result>') + len('<result>')
+										end = content.index('</result>')
+										return content[start:end].strip()
+									else:
+										return content.strip()
+
+			return None
+
+		except Exception as e:
+			self.logger.warning(f"Error searching history: {str(e)}")
+			return None
 
 	async def clear_session(self):
 		"""Clear the current browser session and agent"""
