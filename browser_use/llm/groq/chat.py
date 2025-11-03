@@ -171,14 +171,17 @@ class ChatGroq(BaseChatModel):
 		else:
 			response = await self._invoke_with_json_schema(groq_messages, output_format, schema)
 
-		if not response.choices[0].message.content:
+		content = response.choices[0].message.content
+
+		# Check for empty or whitespace-only content
+		if not content or not content.strip():
 			raise ModelProviderError(
-				message='No content in response',
+				message=f'Empty response from model. This may indicate: 1) Model "{self.name}" does not exist or is not available via Groq, 2) Model returned no output, 3) Provider/model mismatch (e.g., using Ollama syntax for Groq model). For GPT-OSS models, use: --provider groq --model openai/gpt-oss-20b',
 				status_code=500,
 				model=self.name,
 			)
 
-		parsed_response = output_format.model_validate_json(response.choices[0].message.content)
+		parsed_response = output_format.model_validate_json(content)
 		usage = self._get_usage(response)
 
 		return ChatInvokeCompletion(

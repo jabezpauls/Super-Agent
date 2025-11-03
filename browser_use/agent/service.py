@@ -818,7 +818,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
 		self.state.consecutive_failures += 1
 
-		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+		# Check for empty response / JSON parsing errors (common with wrong model/provider)
+		if 'EOF while parsing' in error_msg or 'Empty response' in error_msg or 'input_value=\'\'' in error_msg:
+			logger.error(f'Model: {self.llm.model} returned empty response')
+			logger.error(f'{prefix}{error_msg}')
+			logger.error('💡 Possible causes:')
+			logger.error('   1. Model does not exist or is not available for this provider')
+			logger.error('   2. Provider/model mismatch (e.g., using Ollama with Groq model)')
+			logger.error('   3. Model name syntax error (Ollama: model:tag, Groq: provider/model)')
+			logger.error('   4. API rate limit or connection issue')
+			logger.error(f'   Verify model exists: Check provider documentation for "{self.llm.model}"')
+		elif 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			# give model a hint how output should look like
 			logger.error(f'Model: {self.llm.model} failed')
 			logger.error(f'{prefix}{error_msg}')

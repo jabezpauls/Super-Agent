@@ -154,6 +154,42 @@ Prerequisites (for MCP - Google Calendar/Gmail):
 	return parser.parse_args()
 
 
+def validate_model_provider_match(model: str, provider: str, logger: CleanLogger) -> bool:
+	"""
+	Validate that model name matches the selected provider
+	Returns True if validation passes, False otherwise (with warnings)
+	"""
+	# Known Groq models that users might confuse with Ollama syntax
+	groq_models = {
+		'gpt-oss-20b': 'openai/gpt-oss-20b',
+		'gpt-oss-120b': 'openai/gpt-oss-120b',
+		'gpt-oss:20b': 'openai/gpt-oss-20b',
+		'gpt-oss:120b': 'openai/gpt-oss-120b',
+	}
+
+	# Check for Groq model with wrong provider
+	if provider == 'ollama' and model in groq_models:
+		logger.warning(f"⚠️  Model '{model}' is a Groq model, not Ollama!")
+		logger.warning(f"   Correct usage: --provider groq --model {groq_models[model]}")
+		logger.warning(f"   Continuing anyway, but this will likely fail...")
+		return True  # Let it continue but with warning
+
+	# Check for slash syntax with ollama (common mistake)
+	if provider == 'ollama' and ('/' in model or model.startswith('openai/')):
+		logger.warning(f"⚠️  Model '{model}' uses slash syntax which is typically for Groq/OpenAI")
+		logger.warning(f"   Ollama models use colon syntax: model:tag (e.g., 'llama2:7b')")
+		logger.warning(f"   If you meant to use Groq, add: --provider groq")
+		return True  # Let it continue but with warning
+
+	# Check for colon syntax with groq (common mistake)
+	if provider == 'groq' and ':' in model and not model.startswith('openai/'):
+		logger.warning(f"⚠️  Model '{model}' uses colon syntax which is for Ollama")
+		logger.warning(f"   Groq models use slash syntax: provider/model (e.g., 'openai/gpt-oss-20b')")
+		return True  # Let it continue but with warning
+
+	return True
+
+
 async def create_llm_from_args(args: argparse.Namespace, logger: CleanLogger) -> Tuple[object, int]:
 	"""
 	Create LLM instance from command-line arguments
@@ -169,19 +205,35 @@ async def create_llm_from_args(args: argparse.Namespace, logger: CleanLogger) ->
 	logger.info(f"Provider: {args.provider}")
 	logger.info(f"Model: {args.model}")
 
+	# Validate model/provider match
+	validate_model_provider_match(args.model, args.provider, logger)
+
 	if args.provider == 'openai':
-		from openai import AsyncOpenAI
+		from browser_use.llm.openai.chat import ChatOpenAI
 
 		api_key = os.getenv('OPENAI_API_KEY')
-		if not api_key:
+		base_url = os.getenv('OPENAI_BASE_URL')
+
+		# Allow dummy key for vLLM/local endpoints
+		if not api_key and not base_url:
 			logger.error("OPENAI_API_KEY not found in environment")
 			logger.info("Please set it in your .env file or export it:")
 			logger.info("  export OPENAI_API_KEY=your_key_here")
+			logger.info("Or for vLLM/local endpoints, set OPENAI_BASE_URL")
 			return None, 1
 
-		llm = AsyncOpenAI(api_key=api_key)
-		llm.model = args.model
-		logger.info("OpenAI client initialized")
+		# Use dummy key if base_url is provided (for vLLM compatibility)
+		if base_url and not api_key:
+			api_key = 'dummy'
+
+		llm = ChatOpenAI(
+			model=args.model,
+			api_key=api_key,
+			base_url=base_url
+		)
+
+		endpoint_info = f" (custom endpoint: {base_url})" if base_url else ""
+		logger.info(f"OpenAI client initialized{endpoint_info}")
 		return llm, 0
 
 	elif args.provider == 'anthropic':

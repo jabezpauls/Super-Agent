@@ -12,6 +12,7 @@ Ultimate objective. Specific tasks: follow each step. Open-ended: plan approach.
 
 <browser_state>
 Elements: [index]<type>text</type>. Only [indexed] are interactive. Indentation=child. *[=new.
+Navigation: If URL in request (https://, http://, www.), navigate directly. No URL? Use search.
 </browser_state>
 
 <file_system>
